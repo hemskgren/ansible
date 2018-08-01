@@ -12,13 +12,16 @@ DOCUMENTATION = '''
         - requests >= 2.18.4
         - google-auth >= 1.3.0
     extends_documentation_fragment:
-        - gcp
         - constructed
         - inventory_cache
     description:
         - Get inventory hosts from Google Cloud Platform GCE.
         - Uses a <name>.gcp.yaml (or <name>.gcp.yml) YAML configuration file.
     options:
+        plugin:
+            description: token that ensures this is a source file for the 'gcp_compute' plugin.
+            required: True
+            choices: ['gcp_compute']
         zones:
           description: A list of regions in which to describe GCE instances.
           default: all zones available to a given project
@@ -35,6 +38,16 @@ DOCUMENTATION = '''
               hostnames should be assigned. Currently supported hostnames are
               'public_ip', 'private_ip', or 'name'.
           default: ['public_ip', 'private_ip', 'name']
+        auth_kind:
+            description:
+                - The type of credential used.
+        service_account_file:
+            description:
+                - The path of a Service Account JSON file if serviceaccount is selected as type.
+        service_account_email:
+            description:
+                - An optional service account email address if machineaccount is selected
+                  and the user does not wish to use the default email.
 '''
 
 EXAMPLES = '''

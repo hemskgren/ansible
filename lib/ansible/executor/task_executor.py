@@ -202,6 +202,10 @@ class TaskExecutor:
         # get search path for this task to pass to lookup plugins
         self._job_vars['ansible_search_path'] = self._task.get_search_path()
 
+        # ensure basedir is always in (dwim already searches here but we need to display it)
+        if self._loader.get_basedir() not in self._job_vars['ansible_search_path']:
+            self._job_vars['ansible_search_path'].append(self._loader.get_basedir())
+
         templar = Templar(loader=self._loader, shared_loader_obj=self._shared_loader_obj, variables=self._job_vars)
         items = None
         if self._task.loop_with:
@@ -253,10 +257,6 @@ class TaskExecutor:
                 if item is not None and not isinstance(item, UnsafeProxy):
                     items[idx] = UnsafeProxy(item)
 
-        # ensure basedir is always in (dwim already searches here but we need to display it)
-        if self._loader.get_basedir() not in self._job_vars['ansible_search_path']:
-            self._job_vars['ansible_search_path'].append(self._loader.get_basedir())
-
         return items
 
     def _run_loop(self, items):
@@ -278,14 +278,19 @@ class TaskExecutor:
         label = None
         loop_pause = 0
         templar = Templar(loader=self._loader, shared_loader_obj=self._shared_loader_obj, variables=self._job_vars)
+
+        # FIXME: move this to the object itself to allow post_validate to take care of templating (loop_control.post_validate)
         if self._task.loop_control:
-            # FIXME: move this to the object itself to allow post_validate to take care of templating
             loop_var = templar.template(self._task.loop_control.loop_var)
             index_var = templar.template(self._task.loop_control.index_var)
             loop_pause = templar.template(self._task.loop_control.pause)
-            # the these may be 'None', so we still need to default to something useful
-            # this is tempalted below after an item is assigned
-            label = (self._task.loop_control.label or ('{{' + loop_var + '}}'))
+
+            # This may be 'None',so it is tempalted below after we ensure a value and an item is assigned
+            label = self._task.loop_control.label
+
+        # ensure we always have a label
+        if label is None:
+            label = '{{' + loop_var + '}}'
 
         if loop_var in task_vars:
             display.warning(u"The loop variable '%s' is already in use. "
@@ -339,8 +344,8 @@ class TaskExecutor:
             res['_ansible_item_result'] = True
             res['_ansible_ignore_errors'] = task_fields.get('ignore_errors')
 
-            if label is not None:
-                res['_ansible_item_label'] = templar.template(label, cache=False)
+            # gets templated here unlike rest of loop_control fields, depends on loop_var above
+            res['_ansible_item_label'] = templar.template(label, cache=False)
 
             self._rslt_q.put(
                 TaskResult(
@@ -762,7 +767,7 @@ class TaskExecutor:
                 display.vvvv("Exception during async poll, retrying... (%s)" % to_text(e))
                 display.debug("Async poll exception was:\n%s" % to_text(traceback.format_exc()))
                 try:
-                    normal_handler._connection._reset()
+                    normal_handler._connection.reset()
                 except AttributeError:
                     pass
 
@@ -931,6 +936,8 @@ class TaskExecutor:
         stdin.write(b'\n#END_INIT#\n')
 
         src = cPickle.dumps(variables, protocol=0)
+        # remaining \r fail to round-trip the socket
+        src = src.replace(b'\r', br'\r')
         stdin.write(src)
         stdin.write(b'\n#END_VARS#\n')
 
